@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Minecraft GUI 渲染</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        .controls label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        select, input, button {
+            padding: 6px;
+            font-size: 14px;
+        }
+        #status {
+            margin: 10px 0;
+            padding: 8px 12px;
+            background: #fff;
+            border-left: 4px solid #2196F3;
+            font-size: 13px;
+            color: #333;
+        }
+        #myGuiContainer {
+            position: relative;
+            display: inline-block;
+            image-rendering: pixelated;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        #myGuiContainer canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+        #anvilNameInput {
+            position: absolute;
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: #fff;
+            font-family: monospace;
+            font-size: 16px;
+            text-align: center;
+            outline: none;
+            caret-color: #fff;
+            text-shadow: 1px 1px 0 #3f3f3f;
+            padding: 0;
+            margin: 0;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        #anvilNameInput::placeholder {
+            color: #a0a0a0;
+        }
+    </style>
+</head>
+<body>
+    <h2>Minecraft 容器 GUI 预览</h2>
+    <div class="controls">
+        <label>容器类型：</label>
+        <select id="containerType">
+            <optgroup label="箱子类">
+                <option value="generic_54">大箱子（54 格）</option>
+                <option value="large_trapped_chest">大型陷阱箱</option>
+                <option value="large_copper_chest">大型铜箱子</option>
+                <option value="generic_27">小箱子（27 格）</option>
+                <option value="trapped_chest">陷阱箱</option>
+                <option value="copper_chest">铜箱子</option>
+                <option value="barrel">木桶</option>
+                <option value="ender_chest">末影箱</option>
+                <option value="shulker_box">潜影盒</option>
+                <option value="minecart_with_chest">运输矿车</option>
+                <option value="boat_with_chest">运输船</option>
+            </optgroup>
+            <optgroup label="熔炼类">
+                <option value="furnace">熔炉</option>
+                <option value="blast_furnace">高炉</option>
+                <option value="smoker">烟熏炉</option>
+            </optgroup>
+            <optgroup label="功能方块">
+                <option value="hopper">漏斗</option>
+                <option value="hopper_minecart">漏斗矿车</option>
+                <option value="dispenser">发射器</option>
+                <option value="dropper">投掷器</option>
+                <option value="crafter">合成器</option>
+                <option value="crafting_table">工作台</option>
+                <option value="anvil">铁砧</option>
+                <option value="grindstone">砂轮</option>
+                <option value="brewing_stand">酿造台</option>
+                <option value="enchanting_table">附魔台</option>
+                <option value="loom">织布机</option>
+                <option value="cartography_table">制图台</option>
+                <option value="smithing_table">锻造台</option>
+                <option value="stonecutter">切石机</option>
+                <option value="beacon">信标</option>
+            </optgroup>
+            <optgroup label="实体 / 特殊">
+                <option value="horse">马</option>
+                <option value="inventory">玩家背包</option>
+                <option value="merchant">村民交易</option>
+            </optgroup>
+        </select>
+    </div>
+    <div class="controls">
+        <label>你的资源包：</label>
+        <input type="file" id="packInput" accept=".zip">
+    </div>
+    <div class="controls">
+        <label>兜底资源包：</label>
+        <input type="file" id="fallbackInput" accept=".zip">
+        <span style="font-size: 12px; color: #888;">（未选择时自动使用本地 1.21.11 原版材质包）</span>
+    </div>
+    <div class="controls" id="animControls" style="display:none;">
+        <label>动画控制：</label>
+        <button id="toggleAnimBtn">播放</button>
+    </div>
+    <div id="status">正在加载本地原版材质包...</div>
+    <div id="myGuiContainer"></div>
+
+    <script src="assets/libs/jszip.min.js"></script>
+    <script src="assets/libs/pixi.min.js"></script>
+
+    <script>
+        const GUI_SCALE = 2;
+        const VANILLA_ASSET_ROOT = 'https://assets.mcasset.cloud/1.21.11/assets/minecraft/textures';
+
+        // 容器配置：背景贴图、uv 裁剪区域、槽位定义、额外交互元素
+        // 坐标来源见 mc_1.21.11_gui_coordinates.md
+        const CONTAINER_CONFIGS = {
+            // ---------- 箱子类 ----------
+            generic_54: {
+                name: '大箱子',
+                texture: '/gui/container/generic_54',
+                uv: [0, 0, 176, 221],
+                slots: [
+                    ...gridSlots([0, 0], [8, 18], [18, 18], 6, 9),
+                    ...gridSlots([0, 6], [8, 139], [18, 18], 3, 9),
+                    ...gridSlots([0, 9], [8, 197], [18, 18], 1, 9)
+                ]
+            },
+            // 以下 27 格容器共用潜影盒贴图结构（3 行）
+            generic_27: create27SlotChest('小箱子', '/gui/container/shulker_box'),
+            trapped_chest: create27SlotChest('陷阱箱', '/gui/container/shulker_box'),
+            copper_chest: create27SlotChest('铜箱子', '/gui/container/shulker_box'),
+            barrel: create27SlotChest('木桶', '/gui/container/shulker_box'),
+            ender_chest: create27SlotChest('末影箱', '/gui/container/shulker_box'),
+            minecart_with_chest: create27SlotChest('运输矿车', '/gui/container/shulker_box'),
+            boat_with_chest: create27SlotChest('运输船', '/gui/container/shulker_box'),
+            // 以下 54 格容器共用 generic_54 大箱子贴图结构
+            large_trapped_chest: create54SlotChest('大型陷阱箱', '/gui/container/generic_54'),
+            large_copper_chest: create54SlotChest('大型铜箱子', '/gui/container/generic_54'),
+            shulker_box: {
+                name: '潜影盒',
+                texture: '/gui/container/shulker_box',
+                uv: [0, 0, 176, 168],
+                slots: [
+                    ...gridSlots([0, 0], [8, 18], [18, 18], 3, 9),
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ]
+            },
+
+            // ---------- 熔炼类 ----------
+            furnace: {
+                name: '熔炉',
+                texture: '/gui/container/furnace',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input', pos: [55, 16] },
+                    { name: 'fuel', pos: [55, 52] },
+                    { name: 'output', pos: [116, 35] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    lit: { texture: '/gui/sprites/container/furnace/lit_progress', pos: [56, 36], size: [14, 14] },
+                    burn: { texture: '/gui/sprites/container/furnace/burn_progress', pos: [79, 34], size: [24, 16] }
+                }
+            },
+            blast_furnace: {
+                name: '高炉',
+                texture: '/gui/container/blast_furnace',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input', pos: [55, 16] },
+                    { name: 'fuel', pos: [55, 52] },
+                    { name: 'output', pos: [116, 35] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    lit: { texture: '/gui/sprites/container/blast_furnace/lit_progress', pos: [56, 36], size: [14, 14] },
+                    burn: { texture: '/gui/sprites/container/blast_furnace/burn_progress', pos: [79, 34], size: [24, 16] }
+                }
+            },
+            smoker: {
+                name: '烟熏炉',
+                texture: '/gui/container/smoker',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input', pos: [55, 16] },
+                    { name: 'fuel', pos: [55, 52] },
+                    { name: 'output', pos: [116, 35] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    lit: { texture: '/gui/sprites/container/smoker/lit_progress', pos: [56, 36], size: [14, 14] },
+                    burn: { texture: '/gui/sprites/container/smoker/burn_progress', pos: [79, 34], size: [24, 16] }
+                }
+            },
+
+            // ---------- 功能方块 ----------
+            hopper: {
+                name: '漏斗',
+                texture: '/gui/container/hopper',
+                uv: [0, 0, 176, 133],
+                slots: [
+                    ...gridSlots([0, 0], [44, 20], [18, 18], 1, 5),
+                    ...gridSlots([0, 1], [8, 51], [18, 18], 3, 9),
+                    ...gridSlots([0, 4], [8, 109], [18, 18], 1, 9)
+                ]
+            },
+            hopper_minecart: {
+                name: '漏斗矿车',
+                texture: '/gui/container/hopper',
+                uv: [0, 0, 176, 133],
+                slots: [
+                    ...gridSlots([0, 0], [44, 20], [18, 18], 1, 5),
+                    ...gridSlots([0, 1], [8, 51], [18, 18], 3, 9),
+                    ...gridSlots([0, 4], [8, 109], [18, 18], 1, 9)
+                ]
+            },
+            dispenser: {
+                name: '发射器',
+                texture: '/gui/container/dispenser',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    ...gridSlots([0, 0], [62, 17], [18, 18], 3, 3),
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ]
+            },
+            dropper: {
+                name: '投掷器',
+                texture: '/gui/container/dispenser',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    ...gridSlots([0, 0], [62, 17], [18, 18], 3, 3),
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ]
+            },
+            crafting_table: {
+                name: '工作台',
+                texture: '/gui/container/crafting_table',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    ...gridSlots([0, 0], [30, 17], [18, 18], 3, 3),
+                    { name: 'output', pos: [124, 35] },
+                    ...gridSlots([0, 4], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 7], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    recipe_book: {
+                        texture: '/gui/sprites/recipe_book/button',
+                        highlight: '/gui/sprites/recipe_book/button_highlighted',
+                        pos: [5, 34],
+                        size: [20, 18]
+                    }
+                }
+            },
+            anvil: {
+                name: '铁砧',
+                texture: '/gui/container/anvil',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input1', pos: [27, 47] },
+                    { name: 'input2', pos: [76, 47] },
+                    { name: 'output', pos: [134, 47] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    name_field: {
+                        texture: '/gui/sprites/container/anvil/text_field',
+                        pos: [59, 20],
+                        size: [110, 16]
+                    }
+                }
+            },
+            grindstone: {
+                name: '砂轮',
+                texture: '/gui/container/grindstone',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input1', pos: [49, 19] },
+                    { name: 'input2', pos: [49, 40] },
+                    { name: 'output', pos: [129, 34] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    error: { texture: '/gui/sprites/container/anvil/error', pos: [92, 31], size: [28, 21] }
+                }
+            },
+            brewing_stand: {
+                name: '酿造台',
+                texture: '/gui/container/brewing_stand',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'potion0', pos: [56, 51] },
+                    { name: 'potion1', pos: [79, 58] },
+                    { name: 'potion2', pos: [102, 51] },
+                    { name: 'fuel', pos: [17, 17] },
+                    { name: 'ingredient', pos: [79, 17] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    fuel_bar: { texture: '/gui/sprites/container/brewing_stand/fuel_length', pos: [60, 44], size: [18, 4] },
+                    brew_progress: { texture: '/gui/sprites/container/brewing_stand/brew_progress', pos: [97, 16], size: [9, 28] },
+                    bubbles: { texture: '/gui/sprites/container/brewing_stand/bubbles', pos: [63, 14], size: [12, 29] }
+                }
+            },
+            crafter: {
+                name: '合成器',
+                texture: '/gui/container/crafter',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    ...gridSlots([0, 0], [26, 17], [18, 18], 3, 3),
+                    { name: 'output', pos: [134, 35] },
+                    ...gridSlots([0, 4], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 7], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    redstone: {
+                        powered: '/gui/sprites/container/crafter/powered_redstone',
+                        unpowered: '/gui/sprites/container/crafter/unpowered_redstone',
+                        pos: [97, 35],
+                        size: [16, 16]
+                    },
+                    disabled_slot: { texture: '/gui/sprites/container/crafter/disabled_slot', size: [18, 18] }
+                }
+            },
+            enchanting_table: {
+                name: '附魔台',
+                texture: '/gui/container/enchanting_table',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input', pos: [15, 47] },
+                    { name: 'lapis', pos: [35, 47] },
+                    ...gridSlots([0, 2], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 5], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    options: {
+                        pos: [60, 14],
+                        size: [108, 19],
+                        gap: 19,
+                        count: 3
+                    }
+                }
+            },
+            loom: {
+                name: '织布机',
+                texture: '/gui/container/loom',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'banner', pos: [13, 26] },
+                    { name: 'dye', pos: [33, 26] },
+                    { name: 'pattern', pos: [23, 45] },
+                    { name: 'output', pos: [143, 57] },
+                    ...gridSlots([0, 4], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 7], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    pattern_grid: {
+                        pos: [60, 13],
+                        cell: [14, 14],
+                        cols: 4,
+                        rows: 4,
+                        texture: '/gui/sprites/container/loom/pattern',
+                        highlight: '/gui/sprites/container/loom/pattern_highlighted',
+                        selected: '/gui/sprites/container/loom/pattern_selected',
+                        scroller: { texture: '/gui/sprites/container/loom/scroller', pos: [119, 13], size: [12, 15], trackHeight: 56 }
+                    },
+                    preview: { texture: '/gui/sprites/container/loom/pattern', pos: [141, 8], size: [20, 40] }
+                }
+            },
+            cartography_table: {
+                name: '制图台',
+                texture: '/gui/container/cartography_table',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'map', pos: [15, 15] },
+                    { name: 'paper', pos: [15, 52] },
+                    { name: 'output', pos: [145, 39] },
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    map_preview: {
+                        map: '/gui/sprites/container/cartography_table/scaled_map',
+                        overlay: '/gui/sprites/container/cartography_table/map',
+                        pos: [67, 13],
+                        size: [66, 66]
+                    }
+                }
+            },
+            smithing_table: {
+                name: '锻造台',
+                texture: '/gui/container/smithing',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'template', pos: [8, 48] },
+                    { name: 'base', pos: [26, 48] },
+                    { name: 'material', pos: [44, 48] },
+                    { name: 'output', pos: [98, 48] },
+                    ...gridSlots([0, 4], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 7], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    error: { texture: '/gui/sprites/container/anvil/error', pos: [65, 46], size: [28, 21] }
+                }
+            },
+            stonecutter: {
+                name: '切石机',
+                texture: '/gui/container/stonecutter',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'input', pos: [20, 33] },
+                    { name: 'output', pos: [143, 33] },
+                    ...gridSlots([0, 2], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 5], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    recipe_grid: {
+                        pos: [52, 14],
+                        cell: [16, 18],
+                        cols: 4,
+                        rows: 3,
+                        highlight: '/gui/sprites/container/stonecutter/recipe_highlighted',
+                        selected: '/gui/sprites/container/stonecutter/recipe_selected',
+                        scroller: { texture: '/gui/sprites/container/loom/scroller', pos: [119, 15], size: [12, 15], trackHeight: 54 }
+                    }
+                }
+            },
+            beacon: {
+                name: '信标',
+                texture: '/gui/container/beacon',
+                uv: [0, 0, 230, 219],
+                slots: [
+                    { name: 'payment', pos: [136, 110] },
+                    ...gridSlots([0, 1], [36, 137], [18, 18], 3, 9),
+                    ...gridSlots([0, 4], [36, 195], [18, 18], 1, 9)
+                ],
+                extras: {
+                    confirm: { texture: '/gui/sprites/container/beacon/confirm', pos: [70, 194], size: [90, 22] },
+                    effects: {
+                        primary: { pos: [36, 24], buttonSize: [22, 22], iconOffset: [3, 3] },
+                        secondary: { pos: [36, 72], buttonSize: [24, 24], iconOffset: [4, 4] }
+                    }
+                }
+            },
+
+            // ---------- 实体 / 特殊 ----------
+            horse: {
+                name: '马',
+                texture: '/gui/container/horse',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'saddle', pos: [8, 18] },
+                    { name: 'armor', pos: [8, 36] },
+                    ...gridSlots([0, 2], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 5], [8, 142], [18, 18], 1, 9)
+                ]
+            },
+            inventory: {
+                name: '玩家背包',
+                texture: '/gui/container/inventory',
+                uv: [0, 0, 176, 166],
+                slots: [
+                    { name: 'helmet', pos: [8, 8] },
+                    { name: 'chestplate', pos: [8, 26] },
+                    { name: 'leggings', pos: [8, 44] },
+                    { name: 'boots', pos: [8, 62] },
+                    { name: 'offhand', pos: [77, 62] },
+                    ...gridSlots([0, 0], [98, 18], [18, 18], 2, 2),
+                    { name: 'craft_output', pos: [154, 28] },
+                    ...gridSlots([0, 4], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 7], [8, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    recipe_book: {
+                        texture: '/gui/sprites/recipe_book/button',
+                        highlight: '/gui/sprites/recipe_book/button_highlighted',
+                        pos: [141, 61],
+                        size: [20, 18]
+                    }
+                }
+            },
+            merchant: {
+                name: '村民交易',
+                texture: '/gui/container/villager',
+                uv: [0, 0, 276, 166],
+                slots: [
+                    { name: 'input1', pos: [136, 37] },
+                    { name: 'input2', pos: [162, 37] },
+                    { name: 'output', pos: [220, 37] },
+                    ...gridSlots([0, 3], [108, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [108, 142], [18, 18], 1, 9)
+                ],
+                extras: {
+                    trade_list: {
+                        pos: [5, 17],
+                        size: [89, 120],
+                        itemCount: 7
+                    }
+                }
+            }
+        };
+
+        function gridSlots(startIndex, origin, offset, rows, cols) {
+            const slots = [];
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    slots.push({
+                        name: `slot_${startIndex[0] + col}_${startIndex[1] + row}`,
+                        pos: [origin[0] + col * offset[0], origin[1] + row * offset[1]]
+                    });
+                }
+            }
+            return slots;
+        }
+
+        // 27 格箱子类容器共用同一套贴图结构（与潜影盒布局一致）
+        function create27SlotChest(name, texture) {
+            return {
+                name,
+                texture,
+                uv: [0, 0, 176, 168],
+                slots: [
+                    ...gridSlots([0, 0], [8, 18], [18, 18], 3, 9),
+                    ...gridSlots([0, 3], [8, 84], [18, 18], 3, 9),
+                    ...gridSlots([0, 6], [8, 142], [18, 18], 1, 9)
+                ]
+            };
+        }
+
+        // 54 格箱子类容器共用同一套贴图结构（generic_54 大箱子布局）
+        function create54SlotChest(name, texture) {
+            return {
+                name,
+                texture,
+                uv: [0, 0, 176, 221],
+                slots: [
+                    ...gridSlots([0, 0], [8, 18], [18, 18], 6, 9),
+                    ...gridSlots([0, 6], [8, 139], [18, 18], 3, 9),
+                    ...gridSlots([0, 9], [8, 197], [18, 18], 1, 9)
+                ]
+            };
+        }
+
+        function toResourcePackPath(texturePath) {
+            return 'assets/minecraft/textures' + texturePath + '.png';
+        }
+
+        function toVanillaUrl(texturePath) {
+            return VANILLA_ASSET_ROOT + texturePath + '.png';
+        }
+
+        async function getBlobUrlFromZip(zip, filePath) {
+            if (!zip) return null;
+            // 兼容 Windows 反斜杠路径（PowerShell Compress-Archive 会生成）
+            const tryPaths = [filePath, filePath.replace(/\//g, '\\')];
+            for (const p of tryPaths) {
+                const file = zip.file(p);
+                if (file) {
+                    try {
+                        const blob = await file.async('blob');
+                        return URL.createObjectURL(blob);
+                    } catch (e) {
+                        console.error(`ZIP 读取失败: ${p}`, e);
+                        return null;
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 从 zip 中查找文件，兼容正斜杠和反斜杠路径
+        function findZipFile(zip, filePath) {
+            if (!zip) return null;
+            const tryPaths = [filePath, filePath.replace(/\//g, '\\')];
+            for (const p of tryPaths) {
+                const file = zip.file(p);
+                if (file) return file;
+            }
+            return null;
+        }
+
+        // 从 pack.mcmeta 读取资源包倍率（默认 0 表示未声明）
+        async function getPackScaleFromMeta(zip) {
+            if (!zip) return 0;
+            try {
+                const metaFile = findZipFile(zip, 'pack.mcmeta');
+                if (!metaFile) return 0;
+                const metaText = await metaFile.async('text');
+                const meta = JSON.parse(metaText);
+                const imageWidth = meta?.pack?.image_width;
+                if (typeof imageWidth === 'number' && imageWidth >= 16) {
+                    return imageWidth / 16;
+                }
+            } catch (e) {
+                console.warn('无法解析 pack.mcmeta:', e.message);
+            }
+            return 0;
+        }
+
+        // 直接从 zip 读取贴图尺寸（绕过缓存）
+        async function getImageSizeFromZip(zip, texturePath) {
+            if (!zip) return null;
+            const filePath = toResourcePackPath(texturePath);
+            const file = findZipFile(zip, filePath);
+            if (!file) return null;
+            try {
+                const blob = await file.async('blob');
+                const img = await new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = URL.createObjectURL(blob);
+                });
+                return { width: img.width, height: img.height };
+            } catch (e) {
+                console.warn('读取贴图尺寸失败:', texturePath, e);
+                return null;
+            }
+        }
+
+        // 从实际贴图尺寸检测倍率（资源包贴图 / 原版贴图）
+        async function detectScaleFromTexture(resourcePackTexture, vanillaZip, texturePath) {
+            if (!resourcePackTexture || !resourcePackTexture.baseTexture) return 1;
+            
+            // 加载原版贴图获取实际尺寸
+            let vanillaTexture = null;
+            try {
+                const vanillaResult = await loadTexture(vanillaZip, null, texturePath);
+                vanillaTexture = vanillaResult.texture;
+            } catch (e) {
+                console.warn('无法加载原版贴图:', texturePath);
+                return 1;
+            }
+            
+            if (!vanillaTexture || !vanillaTexture.baseTexture) return 1;
+            
+            const rpW = resourcePackTexture.baseTexture.width;
+            const rpH = resourcePackTexture.baseTexture.height;
+            const vW = vanillaTexture.baseTexture.width;
+            const vH = vanillaTexture.baseTexture.height;
+            
+            // 计算倍率（取宽高比值的平均值）
+            const scaleX = rpW / vW;
+            const scaleY = rpH / vH;
+            const avgScale = (scaleX + scaleY) / 2;
+            
+            // 四舍五入到最接近的整数
+            const scale = Math.round(avgScale);
+            return Math.max(1, scale);
+        }
+
+        let app = null;
+        let textureCache = {};
+        let defaultVanillaZip = null;
+        let currentContainerType = 'generic_54';
+        let animationRunning = false;
+        let animationTickers = [];
+        let anvilInput = null;
+
+        async function fetchDefaultVanillaPack() {
+            try {
+                const resp = await fetch('assets/packs/vanilla_1.21.11_full.zip');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                defaultVanillaZip = await JSZip.loadAsync(blob);
+                console.log('本地 1.21.11 原版材质包已加载');
+            } catch (e) {
+                console.warn('本地原版材质包加载失败，将回退到 CDN:', e);
+                defaultVanillaZip = null;
+            }
+        }
+
+        async function loadTexture(primaryZip, fallbackZip, texturePath) {
+            if (textureCache[texturePath]) {
+                return { texture: textureCache[texturePath], source: '缓存' };
+            }
+
+            const filePath = toResourcePackPath(texturePath);
+            const candidates = [];
+
+            const primaryUrl = await getBlobUrlFromZip(primaryZip, filePath);
+            if (primaryUrl) candidates.push({ url: primaryUrl, source: '你的资源包' });
+
+            const fallbackUrl = await getBlobUrlFromZip(fallbackZip, filePath);
+            if (fallbackUrl) candidates.push({ url: fallbackUrl, source: '兜底资源包' });
+
+            const vanillaUrl = await getBlobUrlFromZip(defaultVanillaZip, filePath);
+            if (vanillaUrl) candidates.push({ url: vanillaUrl, source: '本地原版' });
+
+            candidates.push({ url: toVanillaUrl(texturePath), source: '原版 CDN' });
+
+            let lastError = null;
+            for (const { url, source } of candidates) {
+                try {
+                    const img = await new Promise((resolve, reject) => {
+                        const image = new Image();
+                        image.crossOrigin = 'anonymous';
+                        image.onload = () => resolve(image);
+                        image.onerror = () => reject(new Error('贴图加载失败: ' + url));
+                        image.src = url;
+                    });
+
+                    const texture = PIXI.Texture.from(img);
+                    textureCache[texturePath] = texture;
+                    console.log(`已加载 [${source}]: ${texturePath}`);
+                    return { texture, source };
+                } catch (err) {
+                    console.warn(`从 [${source}] 加载失败: ${texturePath}`);
+                    lastError = err;
+                }
+            }
+
+            throw lastError || new Error('无法加载贴图: ' + texturePath);
+        }
+
+        function clearRender() {
+            stopAnimation();
+            removeAnvilInput();
+            if (!app) return;
+            // 只移除 GUI 根容器，保留 tooltip 层
+            const guiRoot = app.stage.children.find(c => c.name === 'guiRoot');
+            if (guiRoot) app.stage.removeChild(guiRoot);
+            for (const key in textureCache) {
+                textureCache[key].destroy(true);
+            }
+            textureCache = {};
+        }
+
+        function stopAnimation() {
+            animationRunning = false;
+            animationTickers.forEach(t => app.ticker.remove(t));
+            animationTickers = [];
+            document.getElementById('toggleAnimBtn').textContent = '播放';
+        }
+
+        function startFurnaceAnimation(root, litSprite, burnSprite, litCfg, burnCfg, litTexture, burnTexture, packScale) {
+            if (animationRunning) return;
+            animationRunning = true;
+            document.getElementById('toggleAnimBtn').textContent = '停止';
+
+            const litFullH = litCfg.size[1] * packScale;
+            const litFullW = litCfg.size[0] * packScale;
+            const burnFullH = burnCfg.size[1] * packScale;
+            const burnFullW = burnCfg.size[0] * packScale;
+
+            let time = 0;
+            const ticker = (delta) => {
+                time += delta;
+
+                // 燃料火焰：从满到空循环（底部对齐，模拟燃料消耗）
+                const fuelCycle = 600; // 10 秒
+                const fuelRatio = 1 - (time % fuelCycle) / fuelCycle;
+                const litH = Math.max(0, litFullH * fuelRatio);
+                litSprite.texture.frame = new PIXI.Rectangle(0, litFullH - litH, litFullW, litH);
+                litSprite.texture.updateUvs();
+                litSprite.width = litCfg.size[0];
+                litSprite.height = litH / packScale;
+                litSprite.y = litCfg.pos[1] + litCfg.size[1] - litSprite.height;
+                litSprite.visible = litH > 0;
+
+                // 冶炼进度箭头：从左到右填充
+                const burnCycle = 480; // 8 秒
+                const progress = (time % burnCycle) / burnCycle;
+                const burnW = burnFullW * progress;
+                burnSprite.texture.frame = new PIXI.Rectangle(0, 0, burnW, burnFullH);
+                burnSprite.texture.updateUvs();
+                burnSprite.width = burnW / packScale;
+                burnSprite.height = burnCfg.size[1];
+            };
+            animationTickers.push(ticker);
+            app.ticker.add(ticker);
+        }
+
+        function removeAnvilInput() {
+            if (anvilInput) {
+                anvilInput.remove();
+                anvilInput = null;
+            }
+        }
+
+        function createAnvilInput() {
+            removeAnvilInput();
+            // 反编译 gtn.java：EditBox 位于 GUI 左上角 (62, 24)，宽 aem.s（约 103），高 12
+            const inputX = 62;
+            const inputY = 24;
+            const inputW = 103;
+            const inputH = 12;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = 'anvilNameInput';
+            input.placeholder = '';
+            input.style.left = (inputX * GUI_SCALE) + 'px';
+            input.style.top = (inputY * GUI_SCALE) + 'px';
+            input.style.width = (inputW * GUI_SCALE) + 'px';
+            input.style.height = (inputH * GUI_SCALE) + 'px';
+            input.style.lineHeight = (inputH * GUI_SCALE) + 'px';
+            document.getElementById('myGuiContainer').appendChild(input);
+            anvilInput = input;
+        }
+
+        async function loadTextureOptional(primaryZip, fallbackZip, texturePath) {
+            try {
+                const result = await loadTexture(primaryZip, fallbackZip, texturePath);
+                return result.texture;
+            } catch (e) {
+                console.warn('可选贴图加载失败，跳过:', texturePath, e.message);
+                return null;
+            }
+        }
+
+        // 示例物品的中文名称（用于 tooltip）
+        const ITEM_NAME_MAP = {
+            '/item/diamond': '钻石',
+            '/item/iron_ingot': '铁锭',
+            '/item/gold_ingot': '金锭',
+            '/item/emerald': '绿宝石',
+            '/item/bone': '骨头',
+            '/item/brick': '红砖',
+            '/item/apple': '苹果',
+            '/item/clock_09': '钟',
+            '/item/egg': '鸡蛋',
+            '/item/feather': '羽毛'
+        };
+
+        function createTooltipLayer() {
+            const container = new PIXI.Container();
+            const bg = new PIXI.Graphics();
+            const text = new PIXI.Text('', {
+                fontFamily: 'sans-serif',
+                fontSize: 16,
+                fill: 0xffffff,
+                dropShadow: true,
+                dropShadowColor: '#3f3f3f',
+                dropShadowDistance: 1,
+                dropShadowBlur: 0
+            });
+            text.x = 6;
+            text.y = 4;
+            container.addChild(bg);
+            container.addChild(text);
+            container.tooltipBg = bg;
+            container.tooltipText = text;
+            container.visible = false;
+            return container;
+        }
+
+        function showTooltip(tooltipLayer, x, y, name) {
+            if (!tooltipLayer) return;
+            tooltipLayer.tooltipText.text = name;
+            const paddingX = 6;
+            const paddingY = 4;
+            const width = tooltipLayer.tooltipText.width + paddingX * 2;
+            const height = tooltipLayer.tooltipText.height + paddingY * 2;
+            tooltipLayer.tooltipBg.clear();
+            tooltipLayer.tooltipBg.beginFill(0x100010, 0.95);
+            tooltipLayer.tooltipBg.lineStyle(1, 0x28007f, 1);
+            tooltipLayer.tooltipBg.drawRect(0, 0, width, height);
+            tooltipLayer.tooltipBg.endFill();
+            tooltipLayer.tooltipBg.lineStyle(1, 0x5050ff, 1);
+            tooltipLayer.tooltipBg.drawRect(1, 1, width - 2, height - 2);
+            tooltipLayer.tooltipBg.endFill();
+
+            tooltipLayer.x = x + 12;
+            tooltipLayer.y = y + 12;
+            tooltipLayer.visible = true;
+        }
+
+        function hideTooltip(tooltipLayer) {
+            if (tooltipLayer) tooltipLayer.visible = false;
+        }
+
+        function startBrewingAnimation(root, bubblesSprite, fuelSprite, brewProgressSprite, bubblesCfg, fuelCfg, brewProgressCfg, bubblesTexture, fuelTexture, brewProgressTexture, packScale) {
+            if (animationRunning) return;
+            animationRunning = true;
+            document.getElementById('toggleAnimBtn').textContent = '停止';
+
+            // 原版气泡高度序列：gtt.java 中的 H 数组
+            const bubbleHeights = [29, 24, 20, 16, 11, 6, 0];
+
+            const bubblesFullH = bubblesCfg.size[1] * packScale;
+            const bubblesFullW = bubblesCfg.size[0] * packScale;
+            const fuelFullH = fuelCfg.size[1] * packScale;
+            const fuelFullW = fuelCfg.size[0] * packScale;
+            const brewFullH = brewProgressCfg.size[1] * packScale;
+            const brewFullW = brewProgressCfg.size[0] * packScale;
+
+            let time = 0;
+            const ticker = (delta) => {
+                time += delta;
+
+                // 酿造进度条：高度从 28 逐渐减少到 0（400 tick 完成）
+                const brewCycle = 400;
+                const brewProgress = (time % brewCycle) / brewCycle;
+                const brewH = brewFullH * (1 - brewProgress);
+                brewProgressSprite.texture.frame = new PIXI.Rectangle(0, 0, brewFullW, brewH);
+                brewProgressSprite.texture.updateUvs();
+                brewProgressSprite.width = brewProgressCfg.size[0];
+                brewProgressSprite.height = brewH / packScale;
+                brewProgressSprite.visible = brewH > 0;
+
+                // 气泡：按 H 数组循环，从底部向上填充
+                const bubbleCycle = 28; // 每帧切换一次高度，共 7 个值 * 4 tick
+                const bubbleIndex = Math.floor(time / 4) % bubbleHeights.length;
+                const bubbleH = bubbleHeights[bubbleIndex] * packScale;
+                bubblesSprite.texture.frame = new PIXI.Rectangle(0, bubblesFullH - bubbleH, bubblesFullW, bubbleH);
+                bubblesSprite.texture.updateUvs();
+                bubblesSprite.width = bubblesCfg.size[0];
+                bubblesSprite.height = bubbleH / packScale;
+                bubblesSprite.y = bubblesCfg.pos[1] + bubblesCfg.size[1] - bubblesSprite.height;
+                bubblesSprite.visible = bubbleH > 0;
+
+                // 燃料条：从左到右循环
+                const fuelCycle = 300;
+                const fuelRatio = (time % fuelCycle) / fuelCycle;
+                const fuelW = fuelFullW * fuelRatio;
+                fuelSprite.texture.frame = new PIXI.Rectangle(0, 0, fuelW, fuelFullH);
+                fuelSprite.texture.updateUvs();
+                fuelSprite.width = fuelW / packScale;
+                fuelSprite.height = fuelCfg.size[1];
+            };
+            animationTickers.push(ticker);
+            app.ticker.add(ticker);
+        }
+
+        function createRecipeBookButton(root, primaryZip, fallbackZip, rbCfg, configName) {
+            loadTexture(primaryZip, fallbackZip, rbCfg.texture).then(({ texture: normalTexture }) => {
+                loadTextureOptional(primaryZip, fallbackZip, rbCfg.highlight).then(highlightTexture => {
+                    const bookSprite = new PIXI.Sprite(normalTexture);
+                    bookSprite.x = rbCfg.pos[0];
+                    bookSprite.y = rbCfg.pos[1];
+                    bookSprite.eventMode = 'static';
+                    bookSprite.cursor = 'pointer';
+                    let enabled = false;
+
+                    bookSprite.on('pointerover', () => {
+                        if (highlightTexture) bookSprite.texture = highlightTexture;
+                    });
+                    bookSprite.on('pointerout', () => {
+                        bookSprite.texture = enabled && highlightTexture ? highlightTexture : normalTexture;
+                    });
+                    bookSprite.on('pointerdown', () => {
+                        enabled = !enabled;
+                        bookSprite.texture = enabled && highlightTexture ? highlightTexture : normalTexture;
+                        setStatus(`${configName}：配方书 ${enabled ? '已打开' : '已关闭'}`);
+                    });
+
+                    root.addChild(bookSprite);
+                });
+            }).catch(err => console.warn('配方书按钮加载失败:', err.message));
+        }
+
+        function createClickableGrid(root, primaryZip, fallbackZip, gridCfg, name, onSelect) {
+            // 绘制网格背景（可选）和交互单元格
+            const { pos, cell, cols, rows } = gridCfg;
+            const cells = [];
+
+            const texLoads = [
+                loadTextureOptional(primaryZip, fallbackZip, gridCfg.highlight),
+                loadTextureOptional(primaryZip, fallbackZip, gridCfg.selected),
+                gridCfg.texture ? loadTextureOptional(primaryZip, fallbackZip, gridCfg.texture) : Promise.resolve(null)
+            ];
+            Promise.all(texLoads).then(([highlightTex, selectedTex, defaultTex]) => {
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                        const x = pos[0] + col * cell[0];
+                        const y = pos[1] + row * cell[1];
+                        const sprite = new PIXI.Sprite(defaultTex || (highlightTex || selectedTex));
+                        sprite.x = x;
+                        sprite.y = y;
+                        if (defaultTex) sprite.width = cell[0];
+                        if (defaultTex) sprite.height = cell[1];
+                        sprite.eventMode = 'static';
+                        sprite.cursor = 'pointer';
+                        sprite.alpha = defaultTex ? 1.0 : 0.3;
+                        let selected = false;
+
+                        sprite.on('pointerover', () => {
+                            if (!selected && highlightTex) sprite.texture = highlightTex;
+                        });
+                        sprite.on('pointerout', () => {
+                            sprite.texture = selected && selectedTex ? selectedTex : (defaultTex || (highlightTex || selectedTex));
+                        });
+                        sprite.on('pointerdown', () => {
+                            cells.forEach(c => {
+                                c.selected = false;
+                                c.sprite.texture = defaultTex || (highlightTex || selectedTex);
+                            });
+                            selected = true;
+                            sprite.texture = selectedTex || highlightTex || sprite.texture;
+                            onSelect && onSelect(col, row);
+                        });
+
+                        root.addChild(sprite);
+                        cells.push({ sprite, selected });
+                    }
+                }
+            }).catch(err => console.warn(`${name} 网格加载失败:`, err.message));
+
+            // 滚动条（装饰）
+            if (gridCfg.scroller) {
+                loadTextureOptional(primaryZip, fallbackZip, gridCfg.scroller.texture).then(tex => {
+                    if (!tex) return;
+                    const scroller = new PIXI.Sprite(tex);
+                    scroller.x = gridCfg.scroller.pos[0];
+                    scroller.y = gridCfg.scroller.pos[1];
+                    root.addChild(scroller);
+                });
+            }
+        }
+
+        async function renderGui(containerType, primaryZip, fallbackZip) {
+            currentContainerType = containerType;
+            const config = CONTAINER_CONFIGS[containerType];
+            if (!config) {
+                setStatus('未知的容器类型');
+                return;
+            }
+
+            try {
+            const container = document.getElementById('myGuiContainer');
+            clearRender();
+
+            const uvW = config.uv[2];
+            const uvH = config.uv[3];
+
+            // 1. 检测倍率：直接从 zip 读取尺寸，绕过贴图缓存
+            let declaredScale = await getPackScaleFromMeta(primaryZip);
+            if (!declaredScale) declaredScale = await getPackScaleFromMeta(fallbackZip);
+
+            let packScale = 1;
+            if (declaredScale && declaredScale >= 1) {
+                packScale = declaredScale;
+            } else {
+                // 直接从资源包和原版 zip 读取贴图尺寸
+                const rpSize = await getImageSizeFromZip(primaryZip || fallbackZip, config.texture);
+                const vSize = await getImageSizeFromZip(defaultVanillaZip, config.texture);
+                if (rpSize && vSize) {
+                    const scaleX = rpSize.width / vSize.width;
+                    const scaleY = rpSize.height / vSize.height;
+                    const avgScale = (scaleX + scaleY) / 2;
+                    const detected = Math.round(avgScale);
+                    packScale = Math.max(1, detected);
+                    console.log(`检测倍率: ${avgScale.toFixed(2)} → ${packScale}x (资源包 ${rpSize.width}x${rpSize.height} / 原版 ${vSize.width}x${vSize.height})`);
+                }
+            }
+
+            // 2. 加载背景贴图（资源包优先）
+            let { texture: bgTexture, source: bgSource } = await loadTexture(primaryZip, fallbackZip, config.texture);
+
+            // 3. 验证：UV区域 × packScale 必须 ≤ 贴图实际尺寸
+            const actualW = bgTexture.baseTexture.width;
+            const actualH = bgTexture.baseTexture.height;
+            if (uvW * packScale > actualW || uvH * packScale > actualH) {
+                let found = false;
+                for (let s = packScale - 1; s >= 1; s--) {
+                    if (uvW * s <= actualW && uvH * s <= actualH) {
+                        packScale = s;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    console.warn(`资源包贴图 ${actualW}x${actualH} 不支持 ${packScale}x 倍率，回退到原版`);
+                    bgTexture = vanillaBgTexture;
+                    bgSource = vanillaBgResult.source;
+                    packScale = 1;
+                }
+            }
+
+            // 5. 总渲染倍率 = GUI_SCALE × packScale
+            const renderScale = GUI_SCALE * packScale;
+
+            // 控制动画按钮显隐
+            const animTypes = ['furnace', 'blast_furnace', 'smoker', 'brewing_stand'];
+            document.getElementById('animControls').style.display =
+                animTypes.includes(containerType) ? 'block' : 'none';
+
+            if (!app) {
+                app = new PIXI.Application({
+                    width: uvW * renderScale,
+                    height: uvH * renderScale,
+                    backgroundAlpha: 0,
+                    antialias: false,
+                    resolution: window.devicePixelRatio || 1,
+                    autoDensity: true
+                });
+                container.appendChild(app.view);
+            } else {
+                app.renderer.resize(uvW * renderScale, uvH * renderScale);
+            }
+
+            const root = new PIXI.Container();
+            root.name = 'guiRoot';
+            root.scale.set(renderScale);
+            app.stage.addChild(root);
+
+            // 创建或复用 tooltip 层
+            let tooltipLayer = app.stage.children.find(c => c.name === 'tooltipLayer');
+            if (!tooltipLayer) {
+                tooltipLayer = createTooltipLayer();
+                tooltipLayer.name = 'tooltipLayer';
+                app.stage.addChild(tooltipLayer);
+            }
+
+            // 追踪贴图来源
+            const sourceMap = {};
+            function recordSource(source) {
+                sourceMap[source] = (sourceMap[source] || 0) + 1;
+            }
+            recordSource(bgSource);
+
+            console.log(`倍率: ${packScale}x, 来源: ${bgSource}, 贴图: ${bgTexture.baseTexture.width}x${bgTexture.baseTexture.height}`);
+
+            // 6. 渲染背景
+            const bgFrame = new PIXI.Rectangle(
+                config.uv[0] * packScale, config.uv[1] * packScale,
+                uvW * packScale, uvH * packScale
+            );
+            const bgSprite = new PIXI.Sprite(new PIXI.Texture(bgTexture.baseTexture, bgFrame));
+            bgSprite.width = uvW;
+            bgSprite.height = uvH;
+            root.addChild(bgSprite);
+
+            // 加载示例物品（默认用原版物品填充部分槽位）
+            const demoItems = ['/item/diamond', '/item/iron_ingot', '/item/gold_ingot', '/item/emerald'];
+            for (let i = 0; i < Math.min(config.slots.length, demoItems.length); i++) {
+                const slot = config.slots[i];
+                const demoTexturePath = demoItems[i % demoItems.length];
+                const { texture: itemTexture, source: itemSource } = await loadTexture(primaryZip, fallbackZip, demoTexturePath);
+                recordSource(itemSource);
+                const itemSprite = new PIXI.Sprite(itemTexture);
+                itemSprite.x = slot.pos[0];
+                itemSprite.y = slot.pos[1];
+                itemSprite.eventMode = 'static';
+                itemSprite.cursor = 'pointer';
+                const itemName = ITEM_NAME_MAP[demoTexturePath] || demoTexturePath;
+                itemSprite.on('pointerover', () => {
+                    const pos = itemSprite.getGlobalPosition();
+                    showTooltip(tooltipLayer, pos.x, pos.y, itemName);
+                });
+                itemSprite.on('pointermove', (e) => {
+                    showTooltip(tooltipLayer, e.global.x, e.global.y, itemName);
+                });
+                itemSprite.on('pointerout', () => hideTooltip(tooltipLayer));
+                root.addChild(itemSprite);
+            }
+
+            // 处理容器额外元素
+            if (config.extras) {
+                // 熔炼类：火焰 + 冶炼进度
+                if (config.extras.lit && config.extras.burn) {
+                    const litCfg = config.extras.lit;
+                    const burnCfg = config.extras.burn;
+
+                    const litTexture = await loadTextureOptional(primaryZip, fallbackZip, litCfg.texture);
+                    const burnTexture = await loadTextureOptional(primaryZip, fallbackZip, burnCfg.texture);
+
+                    if (litTexture && burnTexture) {
+                        const litSprite = new PIXI.Sprite(new PIXI.Texture(
+                            litTexture.baseTexture,
+                            new PIXI.Rectangle(0, 0, litCfg.size[0] * packScale, litCfg.size[1] * packScale)
+                        ));
+                        litSprite.x = litCfg.pos[0];
+                        litSprite.y = litCfg.pos[1];
+                        litSprite.width = litCfg.size[0];
+                        litSprite.height = litCfg.size[1];
+                        litSprite.visible = false;
+                        root.addChild(litSprite);
+
+                        const burnSprite = new PIXI.Sprite(new PIXI.Texture(
+                            burnTexture.baseTexture,
+                            new PIXI.Rectangle(0, 0, burnCfg.size[0] * packScale, burnCfg.size[1] * packScale)
+                        ));
+                        burnSprite.x = burnCfg.pos[0];
+                        burnSprite.y = burnCfg.pos[1];
+                        burnSprite.width = burnCfg.size[0];
+                        burnSprite.height = burnCfg.size[1];
+                        burnSprite.visible = false;
+                        root.addChild(burnSprite);
+
+                        document.getElementById('toggleAnimBtn').onclick = () => {
+                            if (animationRunning) {
+                                stopAnimation();
+                                litSprite.visible = false;
+                                burnSprite.visible = false;
+                            } else {
+                                startFurnaceAnimation(root, litSprite, burnSprite, litCfg, burnCfg, litTexture, burnTexture, packScale);
+                            }
+                        };
+                    }
+                }
+
+                // 配方书按钮（工作台、玩家背包）
+                if (config.extras.recipe_book) {
+                    createRecipeBookButton(root, primaryZip, fallbackZip, config.extras.recipe_book, config.name);
+                }
+
+                // 铁砧：命名输入框（先画背景，再叠加 HTML input）
+                if (config.extras.name_field) {
+                    const nfCfg = config.extras.name_field;
+                    const fieldTexture = await loadTextureOptional(primaryZip, fallbackZip, nfCfg.texture);
+                    if (fieldTexture) {
+                        const fieldSprite = new PIXI.Sprite(fieldTexture);
+                        fieldSprite.x = nfCfg.pos[0];
+                        fieldSprite.y = nfCfg.pos[1];
+                        root.addChild(fieldSprite);
+                    }
+                    createAnvilInput();
+                }
+
+                // 错误图标（砂轮、锻造台）
+                if (config.extras.error) {
+                    const errCfg = config.extras.error;
+                    const errTexture = await loadTextureOptional(primaryZip, fallbackZip, errCfg.texture);
+                    if (errTexture) {
+                        const errSprite = new PIXI.Sprite(errTexture);
+                        errSprite.x = errCfg.pos[0];
+                        errSprite.y = errCfg.pos[1];
+                        root.addChild(errSprite);
+                    }
+                }
+
+                // 酿造台：燃料条 + 酿造进度 + 气泡动画
+                if (config.extras.bubbles && config.extras.fuel_bar && config.extras.brew_progress) {
+                    const bubblesCfg = config.extras.bubbles;
+                    const fuelCfg = config.extras.fuel_bar;
+                    const brewProgressCfg = config.extras.brew_progress;
+
+                    const bubblesTexture = await loadTextureOptional(primaryZip, fallbackZip, bubblesCfg.texture);
+                    const fuelTexture = await loadTextureOptional(primaryZip, fallbackZip, fuelCfg.texture);
+                    const brewProgressTexture = await loadTextureOptional(primaryZip, fallbackZip, brewProgressCfg.texture);
+
+                    if (bubblesTexture && fuelTexture && brewProgressTexture) {
+                        const fuelSprite = new PIXI.Sprite(fuelTexture);
+                        fuelSprite.x = fuelCfg.pos[0];
+                        fuelSprite.y = fuelCfg.pos[1];
+                        fuelSprite.width = fuelCfg.size[0];
+                        fuelSprite.height = fuelCfg.size[1];
+                        fuelSprite.visible = false;
+                        root.addChild(fuelSprite);
+
+                        const brewProgressSprite = new PIXI.Sprite(brewProgressTexture);
+                        brewProgressSprite.x = brewProgressCfg.pos[0];
+                        brewProgressSprite.y = brewProgressCfg.pos[1];
+                        brewProgressSprite.width = brewProgressCfg.size[0];
+                        brewProgressSprite.height = brewProgressCfg.size[1];
+                        brewProgressSprite.visible = false;
+                        root.addChild(brewProgressSprite);
+
+                        const bubblesSprite = new PIXI.Sprite(bubblesTexture);
+                        bubblesSprite.x = bubblesCfg.pos[0];
+                        bubblesSprite.y = bubblesCfg.pos[1];
+                        bubblesSprite.width = bubblesCfg.size[0];
+                        bubblesSprite.height = bubblesCfg.size[1];
+                        bubblesSprite.visible = false;
+                        root.addChild(bubblesSprite);
+
+                        document.getElementById('toggleAnimBtn').onclick = () => {
+                            if (animationRunning) {
+                                stopAnimation();
+                                bubblesSprite.visible = false;
+                                fuelSprite.visible = false;
+                                brewProgressSprite.visible = false;
+                            } else {
+                                startBrewingAnimation(root, bubblesSprite, fuelSprite, brewProgressSprite, bubblesCfg, fuelCfg, brewProgressCfg, bubblesTexture, fuelTexture, brewProgressTexture, packScale);
+                            }
+                        };
+                    }
+                }
+
+                // 合成器：红石状态图标（默认显示未充能，点击切换）
+                if (config.extras.redstone) {
+                    const rsCfg = config.extras.redstone;
+                    const poweredTex = await loadTextureOptional(primaryZip, fallbackZip, rsCfg.powered);
+                    const unpoweredTex = await loadTextureOptional(primaryZip, fallbackZip, rsCfg.unpowered);
+                    if (poweredTex && unpoweredTex) {
+                        const rsSprite = new PIXI.Sprite(unpoweredTex);
+                        rsSprite.x = rsCfg.pos[0];
+                        rsSprite.y = rsCfg.pos[1];
+                        rsSprite.eventMode = 'static';
+                        rsSprite.cursor = 'pointer';
+                        let powered = false;
+                        rsSprite.on('pointerdown', () => {
+                            powered = !powered;
+                            rsSprite.texture = powered ? poweredTex : unpoweredTex;
+                            setStatus(`${config.name}：红石信号 ${powered ? '已充能' : '未充能'}`);
+                        });
+                        root.addChild(rsSprite);
+                    }
+                }
+
+                // 附魔台：三个选项按钮
+                if (config.extras.options) {
+                    const optCfg = config.extras.options;
+                    for (let i = 0; i < optCfg.count; i++) {
+                        const y = optCfg.pos[1] + i * optCfg.gap;
+                        const btn = new PIXI.Graphics();
+                        btn.beginFill(0x000000, 0.001);
+                        btn.drawRect(optCfg.pos[0], y, optCfg.size[0], optCfg.size[1]);
+                        btn.endFill();
+                        btn.eventMode = 'static';
+                        btn.cursor = 'pointer';
+                        const level = i + 1;
+                        btn.on('pointerdown', () => setStatus(`${config.name}：选择附魔选项 ${level}`));
+                        root.addChild(btn);
+                    }
+                }
+
+                // 织布机：图案网格 + 滚动条 + 输出预览
+                if (config.extras.pattern_grid) {
+                    const previewCfg = config.extras.preview;
+                    if (previewCfg) {
+                        const previewTex = await loadTextureOptional(primaryZip, fallbackZip, previewCfg.texture);
+                        if (previewTex) {
+                            const preview = new PIXI.Sprite(previewTex);
+                            preview.x = previewCfg.pos[0];
+                            preview.y = previewCfg.pos[1];
+                            preview.width = previewCfg.size[0];
+                            preview.height = previewCfg.size[1];
+                            root.addChild(preview);
+                        }
+                    }
+                    createClickableGrid(root, primaryZip, fallbackZip, config.extras.pattern_grid, config.name, (col, row) => {
+                        setStatus(`${config.name}：选择图案 ${col},${row}`);
+                    });
+                }
+
+                // 制图台：输出地图预览
+                if (config.extras.map_preview) {
+                    const mpCfg = config.extras.map_preview;
+                    const mapTex = await loadTextureOptional(primaryZip, fallbackZip, mpCfg.map);
+                    if (mapTex) {
+                        const mapSprite = new PIXI.Sprite(mapTex);
+                        mapSprite.x = mpCfg.pos[0];
+                        mapSprite.y = mpCfg.pos[1];
+                        mapSprite.width = mpCfg.size[0];
+                        mapSprite.height = mpCfg.size[1];
+                        root.addChild(mapSprite);
+                    }
+                    const overlayTex = await loadTextureOptional(primaryZip, fallbackZip, mpCfg.overlay);
+                    if (overlayTex) {
+                        const overlay = new PIXI.Sprite(overlayTex);
+                        overlay.x = mpCfg.pos[0];
+                        overlay.y = mpCfg.pos[1];
+                        overlay.width = mpCfg.size[0];
+                        overlay.height = mpCfg.size[1];
+                        root.addChild(overlay);
+                    }
+                }
+
+                // 切石机：配方网格 + 滚动条
+                if (config.extras.recipe_grid) {
+                    createClickableGrid(root, primaryZip, fallbackZip, config.extras.recipe_grid, config.name, (col, row) => {
+                        setStatus(`${config.name}：选择配方 ${col},${row}`);
+                    });
+                }
+
+                // 信标：确认按钮 + 效果按钮
+                if (config.extras.confirm) {
+                    const confirmCfg = config.extras.confirm;
+                    const confirmTex = await loadTextureOptional(primaryZip, fallbackZip, confirmCfg.texture);
+                    if (confirmTex) {
+                        const confirm = new PIXI.Sprite(confirmTex);
+                        confirm.x = confirmCfg.pos[0];
+                        confirm.y = confirmCfg.pos[1];
+                        confirm.eventMode = 'static';
+                        confirm.cursor = 'pointer';
+                        confirm.on('pointerdown', () => setStatus(`${config.name}：已确认效果`));
+                        root.addChild(confirm);
+                    }
+
+                    // 效果按钮（用透明区域模拟）
+                    const effects = config.extras.effects;
+                    if (effects) {
+                        for (const [key, ec] of Object.entries(effects)) {
+                            for (let i = 0; i < 5; i++) {
+                                const x = ec.pos[0] + i * (ec.buttonSize[0] + 2);
+                                const y = ec.pos[1];
+                                const btn = new PIXI.Graphics();
+                                btn.beginFill(0x000000, 0.001);
+                                btn.drawRect(x, y, ec.buttonSize[0], ec.buttonSize[1]);
+                                btn.endFill();
+                                btn.eventMode = 'static';
+                                btn.cursor = 'pointer';
+                                btn.on('pointerdown', () => setStatus(`${config.name}：${key === 'primary' ? '主' : '次'}效果 ${i + 1}`));
+                                root.addChild(btn);
+                            }
+                        }
+                    }
+                }
+
+                // 村民交易：交易列表
+                if (config.extras.trade_list) {
+                    const tlCfg = config.extras.trade_list;
+                    for (let i = 0; i < tlCfg.itemCount; i++) {
+                        const y = tlCfg.pos[1] + i * 17;
+                        const row = new PIXI.Graphics();
+                        row.beginFill(0x000000, 0.001);
+                        row.drawRect(tlCfg.pos[0], y, tlCfg.size[0], 16);
+                        row.endFill();
+                        row.eventMode = 'static';
+                        row.cursor = 'pointer';
+                        row.on('pointerdown', () => setStatus(`${config.name}：选择交易 ${i + 1}`));
+                        root.addChild(row);
+                    }
+                }
+            }
+
+            const sourceSummary = Object.entries(sourceMap)
+                .map(([source, count]) => `${source} ${count} 张`)
+                .join('，');
+            setStatus(`已渲染：${config.name}，${config.slots.length} 个槽位，倍率 ${packScale}x。来源：${sourceSummary}`);
+            } catch (err) {
+                setStatus('渲染失败：' + err.message);
+                console.error(err);
+            }
+        }
+
+        function setStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        async function triggerRender() {
+            const containerType = document.getElementById('containerType').value;
+            const packFile = document.getElementById('packInput').files[0];
+            const fallbackFile = document.getElementById('fallbackInput').files[0];
+
+            setStatus('正在加载...');
+
+            // 如果用户上传了新资源包，清空贴图缓存
+            if (packFile || fallbackFile) {
+                textureCache = {};
+                console.log('资源包变更，已清空贴图缓存');
+            }
+
+            let primaryZip = null;
+            let fallbackZip = null;
+            if (packFile) {
+                primaryZip = await JSZip.loadAsync(packFile);
+            }
+            if (fallbackFile) {
+                fallbackZip = await JSZip.loadAsync(fallbackFile);
+            }
+
+            await renderGui(containerType, primaryZip, fallbackZip);
+        }
+
+        // 先加载本地默认原版材质包，再初始化事件并渲染
+        (async function init() {
+            await fetchDefaultVanillaPack();
+            document.getElementById('containerType').addEventListener('change', triggerRender);
+            document.getElementById('packInput').addEventListener('change', triggerRender);
+            document.getElementById('fallbackInput').addEventListener('change', triggerRender);
+            await triggerRender();
+        })();
+    </script>
+</body>
+</html>
