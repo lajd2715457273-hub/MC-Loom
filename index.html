@@ -130,7 +130,7 @@
     <script src="assets/libs/pixi.min.js"></script>
 
     <script>
-        const GUI_SCALE = 2;
+        const GUI_SCALE = 1;
         const VANILLA_ASSET_ROOT = 'https://assets.mcasset.cloud/1.21.11/assets/minecraft/textures';
 
         // 容器配置：背景贴图、uv 裁剪区域、槽位定义、额外交互元素
@@ -651,7 +651,7 @@
         // 从实际贴图尺寸检测倍率（资源包贴图 / 原版贴图）
         async function detectScaleFromTexture(resourcePackTexture, vanillaZip, texturePath) {
             if (!resourcePackTexture || !resourcePackTexture.baseTexture) return 1;
-            
+
             // 加载原版贴图获取实际尺寸
             let vanillaTexture = null;
             try {
@@ -661,22 +661,70 @@
                 console.warn('无法加载原版贴图:', texturePath);
                 return 1;
             }
-            
+
             if (!vanillaTexture || !vanillaTexture.baseTexture) return 1;
-            
+
             const rpW = resourcePackTexture.baseTexture.width;
             const rpH = resourcePackTexture.baseTexture.height;
             const vW = vanillaTexture.baseTexture.width;
             const vH = vanillaTexture.baseTexture.height;
-            
+
             // 计算倍率（取宽高比值的平均值）
             const scaleX = rpW / vW;
             const scaleY = rpH / vH;
             const avgScale = (scaleX + scaleY) / 2;
-            
+
             // 四舍五入到最接近的整数
             const scale = Math.round(avgScale);
             return Math.max(1, scale);
+        }
+
+        // Helper: 从资源包贴图中裁剪 GUI 区域，自动适配到 GUI 像素尺寸（object-fit 效果）
+        // 从贴图实际像素自动计算真实缩放比例，不依赖可能检测错误的 packScale
+        // cfgRectPx: [ux, uy, uw, uh] 为 GUI 配置中的像素坐标（基于 1x 原版）
+        function createSpriteFromTextureWithPackScale(texture, cfgRectPx, packScale) {
+            const [ux, uy, uw, uh] = cfgRectPx;
+            const texW = texture.baseTexture.width;
+            const texH = texture.baseTexture.height;
+            // 从贴图实际像素计算真实缩放比例
+            // 32x 包 generic_54: 352/176 = 2, 原版: 176/176 = 1
+            const actualScaleX = texW / uw;
+            const actualScaleY = texH / uh;
+            // 用真实比例裁剪纹理帧
+            const frame = new PIXI.Rectangle(
+                Math.round(ux * actualScaleX),
+                Math.round(uy * actualScaleY),
+                Math.round(uw * actualScaleX),
+                Math.round(uh * actualScaleY)
+            );
+            const sprite = new PIXI.Sprite(new PIXI.Texture(texture.baseTexture, frame));
+            // 显示尺寸固定为 GUI 像素，纹理帧自动缩放适配
+            sprite.width = uw;
+            sprite.height = uh;
+            return sprite;
+        }
+
+        // 返回规范化后的 PIXI.Texture，用于需要动态切换纹理的场景（如配方书按钮高亮）
+        function createTextureFromTextureWithPackScale(texture, cfgRectPx, packScale) {
+            const ps = packScale || 1;
+            const [ux, uy, uw, uh] = cfgRectPx;
+            const frame = new PIXI.Rectangle(ux * ps, uy * ps, uw * ps, uh * ps);
+            return new PIXI.Texture(texture.baseTexture, frame);
+        }
+
+        // 安全版本：如果 cfgRectPx 超出贴图实际尺寸，则自动裁剪并拉伸到目标 GUI 尺寸
+        function createSpriteFromTextureWithPackScaleSafe(texture, cfgRectPx, packScale) {
+            const ps = packScale || 1;
+            const [ux, uy, uw, uh] = cfgRectPx;
+            const maxW = texture.baseTexture.width - ux * ps;
+            const maxH = texture.baseTexture.height - uy * ps;
+            const fw = Math.min(uw * ps, Math.max(1, maxW));
+            const fh = Math.min(uh * ps, Math.max(1, maxH));
+            const frame = new PIXI.Rectangle(ux * ps, uy * ps, fw, fh);
+            const sprite = new PIXI.Sprite(new PIXI.Texture(texture.baseTexture, frame));
+            sprite.width = uw;
+            sprite.height = uh;
+            return sprite;
         }
 
         let app = null;
@@ -952,25 +1000,31 @@
             app.ticker.add(ticker);
         }
 
-        function createRecipeBookButton(root, primaryZip, fallbackZip, rbCfg, configName) {
+        function createRecipeBookButton(root, primaryZip, fallbackZip, rbCfg, configName, packScale) {
             loadTexture(primaryZip, fallbackZip, rbCfg.texture).then(({ texture: normalTexture }) => {
                 loadTextureOptional(primaryZip, fallbackZip, rbCfg.highlight).then(highlightTexture => {
-                    const bookSprite = new PIXI.Sprite(normalTexture);
+                    const rect = [0, 0, rbCfg.size[0], rbCfg.size[1]];
+                    const normalFrame = createTextureFromTextureWithPackScale(normalTexture, rect, packScale);
+                    const highlightFrame = highlightTexture ? createTextureFromTextureWithPackScale(highlightTexture, rect, packScale) : null;
+
+                    const bookSprite = new PIXI.Sprite(normalFrame);
                     bookSprite.x = rbCfg.pos[0];
                     bookSprite.y = rbCfg.pos[1];
+                    bookSprite.width = rbCfg.size[0];
+                    bookSprite.height = rbCfg.size[1];
                     bookSprite.eventMode = 'static';
                     bookSprite.cursor = 'pointer';
                     let enabled = false;
 
                     bookSprite.on('pointerover', () => {
-                        if (highlightTexture) bookSprite.texture = highlightTexture;
+                        if (highlightFrame) bookSprite.texture = highlightFrame;
                     });
                     bookSprite.on('pointerout', () => {
-                        bookSprite.texture = enabled && highlightTexture ? highlightTexture : normalTexture;
+                        bookSprite.texture = enabled && highlightFrame ? highlightFrame : normalFrame;
                     });
                     bookSprite.on('pointerdown', () => {
                         enabled = !enabled;
-                        bookSprite.texture = enabled && highlightTexture ? highlightTexture : normalTexture;
+                        bookSprite.texture = enabled && highlightFrame ? highlightFrame : normalFrame;
                         setStatus(`${configName}：配方书 ${enabled ? '已打开' : '已关闭'}`);
                     });
 
@@ -979,7 +1033,7 @@
             }).catch(err => console.warn('配方书按钮加载失败:', err.message));
         }
 
-        function createClickableGrid(root, primaryZip, fallbackZip, gridCfg, name, onSelect) {
+        function createClickableGrid(root, primaryZip, fallbackZip, gridCfg, name, onSelect, packScale) {
             // 绘制网格背景（可选）和交互单元格
             const { pos, cell, cols, rows } = gridCfg;
             const cells = [];
@@ -990,33 +1044,38 @@
                 gridCfg.texture ? loadTextureOptional(primaryZip, fallbackZip, gridCfg.texture) : Promise.resolve(null)
             ];
             Promise.all(texLoads).then(([highlightTex, selectedTex, defaultTex]) => {
+                const makeFrame = (tex) => tex ? createTextureFromTextureWithPackScale(tex, [0, 0, cell[0], cell[1]], packScale) : null;
+                const defaultFrame = makeFrame(defaultTex);
+                const highlightFrame = makeFrame(highlightTex);
+                const selectedFrame = makeFrame(selectedTex);
+
                 for (let row = 0; row < rows; row++) {
                     for (let col = 0; col < cols; col++) {
                         const x = pos[0] + col * cell[0];
                         const y = pos[1] + row * cell[1];
-                        const sprite = new PIXI.Sprite(defaultTex || (highlightTex || selectedTex));
+                        const sprite = new PIXI.Sprite(defaultFrame || highlightFrame || selectedFrame);
                         sprite.x = x;
                         sprite.y = y;
-                        if (defaultTex) sprite.width = cell[0];
-                        if (defaultTex) sprite.height = cell[1];
+                        sprite.width = cell[0];
+                        sprite.height = cell[1];
                         sprite.eventMode = 'static';
                         sprite.cursor = 'pointer';
-                        sprite.alpha = defaultTex ? 1.0 : 0.3;
+                        sprite.alpha = defaultFrame ? 1.0 : 0.3;
                         let selected = false;
 
                         sprite.on('pointerover', () => {
-                            if (!selected && highlightTex) sprite.texture = highlightTex;
+                            if (!selected && highlightFrame) sprite.texture = highlightFrame;
                         });
                         sprite.on('pointerout', () => {
-                            sprite.texture = selected && selectedTex ? selectedTex : (defaultTex || (highlightTex || selectedTex));
+                            sprite.texture = selected && selectedFrame ? selectedFrame : (defaultFrame || highlightFrame || selectedFrame);
                         });
                         sprite.on('pointerdown', () => {
                             cells.forEach(c => {
                                 c.selected = false;
-                                c.sprite.texture = defaultTex || (highlightTex || selectedTex);
+                                c.sprite.texture = defaultFrame || highlightFrame || selectedFrame;
                             });
                             selected = true;
-                            sprite.texture = selectedTex || highlightTex || sprite.texture;
+                            sprite.texture = selectedFrame || highlightFrame || sprite.texture;
                             onSelect && onSelect(col, row);
                         });
 
@@ -1030,7 +1089,7 @@
             if (gridCfg.scroller) {
                 loadTextureOptional(primaryZip, fallbackZip, gridCfg.scroller.texture).then(tex => {
                     if (!tex) return;
-                    const scroller = new PIXI.Sprite(tex);
+                    const scroller = createSpriteFromTextureWithPackScale(tex, [0, 0, gridCfg.scroller.size[0], gridCfg.scroller.size[1]], packScale);
                     scroller.x = gridCfg.scroller.pos[0];
                     scroller.y = gridCfg.scroller.pos[1];
                     root.addChild(scroller);
@@ -1091,14 +1150,13 @@
                 }
                 if (!found) {
                     console.warn(`资源包贴图 ${actualW}x${actualH} 不支持 ${packScale}x 倍率，回退到原版`);
-                    bgTexture = vanillaBgTexture;
-                    bgSource = vanillaBgResult.source;
+                    delete textureCache[config.texture];
+                    const result = await loadTexture(fallbackZip, defaultVanillaZip, config.texture);
+                    bgTexture = result.texture;
+                    bgSource = result.source;
                     packScale = 1;
                 }
             }
-
-            // 5. 总渲染倍率 = GUI_SCALE × packScale
-            const renderScale = GUI_SCALE * packScale;
 
             // 控制动画按钮显隐
             const animTypes = ['furnace', 'blast_furnace', 'smoker', 'brewing_stand'];
@@ -1107,8 +1165,8 @@
 
             if (!app) {
                 app = new PIXI.Application({
-                    width: uvW * renderScale,
-                    height: uvH * renderScale,
+                    width: uvW * GUI_SCALE,
+                    height: uvH * GUI_SCALE,
                     backgroundAlpha: 0,
                     antialias: false,
                     resolution: window.devicePixelRatio || 1,
@@ -1116,12 +1174,12 @@
                 });
                 container.appendChild(app.view);
             } else {
-                app.renderer.resize(uvW * renderScale, uvH * renderScale);
+                app.renderer.resize(uvW * GUI_SCALE, uvH * GUI_SCALE);
             }
 
             const root = new PIXI.Container();
             root.name = 'guiRoot';
-            root.scale.set(renderScale);
+            root.scale.set(GUI_SCALE);
             app.stage.addChild(root);
 
             // 创建或复用 tooltip 层
@@ -1141,14 +1199,10 @@
 
             console.log(`倍率: ${packScale}x, 来源: ${bgSource}, 贴图: ${bgTexture.baseTexture.width}x${bgTexture.baseTexture.height}`);
 
-            // 6. 渲染背景
-            const bgFrame = new PIXI.Rectangle(
-                config.uv[0] * packScale, config.uv[1] * packScale,
-                uvW * packScale, uvH * packScale
-            );
-            const bgSprite = new PIXI.Sprite(new PIXI.Texture(bgTexture.baseTexture, bgFrame));
-            bgSprite.width = uvW;
-            bgSprite.height = uvH;
+            // 渲染背景
+            const bgSprite = createSpriteFromTextureWithPackScale(bgTexture, config.uv, packScale);
+            bgSprite.x = 0;
+            bgSprite.y = 0;
             root.addChild(bgSprite);
 
             // 加载示例物品（默认用原版物品填充部分槽位）
@@ -1158,7 +1212,8 @@
                 const demoTexturePath = demoItems[i % demoItems.length];
                 const { texture: itemTexture, source: itemSource } = await loadTexture(primaryZip, fallbackZip, demoTexturePath);
                 recordSource(itemSource);
-                const itemSprite = new PIXI.Sprite(itemTexture);
+                // 物品图标规范化：高分辨率贴图按 packScale 裁剪并显示为 16x16 GUI 像素
+                const itemSprite = createSpriteFromTextureWithPackScale(itemTexture, [0, 0, 16, 16], packScale);
                 itemSprite.x = slot.pos[0];
                 itemSprite.y = slot.pos[1];
                 itemSprite.eventMode = 'static';
@@ -1186,25 +1241,15 @@
                     const burnTexture = await loadTextureOptional(primaryZip, fallbackZip, burnCfg.texture);
 
                     if (litTexture && burnTexture) {
-                        const litSprite = new PIXI.Sprite(new PIXI.Texture(
-                            litTexture.baseTexture,
-                            new PIXI.Rectangle(0, 0, litCfg.size[0] * packScale, litCfg.size[1] * packScale)
-                        ));
+                        const litSprite = createSpriteFromTextureWithPackScale(litTexture, [0, 0, litCfg.size[0], litCfg.size[1]], packScale);
                         litSprite.x = litCfg.pos[0];
                         litSprite.y = litCfg.pos[1];
-                        litSprite.width = litCfg.size[0];
-                        litSprite.height = litCfg.size[1];
                         litSprite.visible = false;
                         root.addChild(litSprite);
 
-                        const burnSprite = new PIXI.Sprite(new PIXI.Texture(
-                            burnTexture.baseTexture,
-                            new PIXI.Rectangle(0, 0, burnCfg.size[0] * packScale, burnCfg.size[1] * packScale)
-                        ));
+                        const burnSprite = createSpriteFromTextureWithPackScale(burnTexture, [0, 0, burnCfg.size[0], burnCfg.size[1]], packScale);
                         burnSprite.x = burnCfg.pos[0];
                         burnSprite.y = burnCfg.pos[1];
-                        burnSprite.width = burnCfg.size[0];
-                        burnSprite.height = burnCfg.size[1];
                         burnSprite.visible = false;
                         root.addChild(burnSprite);
 
@@ -1222,7 +1267,7 @@
 
                 // 配方书按钮（工作台、玩家背包）
                 if (config.extras.recipe_book) {
-                    createRecipeBookButton(root, primaryZip, fallbackZip, config.extras.recipe_book, config.name);
+                    createRecipeBookButton(root, primaryZip, fallbackZip, config.extras.recipe_book, config.name, packScale);
                 }
 
                 // 铁砧：命名输入框（先画背景，再叠加 HTML input）
@@ -1230,7 +1275,7 @@
                     const nfCfg = config.extras.name_field;
                     const fieldTexture = await loadTextureOptional(primaryZip, fallbackZip, nfCfg.texture);
                     if (fieldTexture) {
-                        const fieldSprite = new PIXI.Sprite(fieldTexture);
+                        const fieldSprite = createSpriteFromTextureWithPackScale(fieldTexture, [0, 0, nfCfg.size[0], nfCfg.size[1]], packScale);
                         fieldSprite.x = nfCfg.pos[0];
                         fieldSprite.y = nfCfg.pos[1];
                         root.addChild(fieldSprite);
@@ -1243,7 +1288,7 @@
                     const errCfg = config.extras.error;
                     const errTexture = await loadTextureOptional(primaryZip, fallbackZip, errCfg.texture);
                     if (errTexture) {
-                        const errSprite = new PIXI.Sprite(errTexture);
+                        const errSprite = createSpriteFromTextureWithPackScale(errTexture, [0, 0, errCfg.size[0], errCfg.size[1]], packScale);
                         errSprite.x = errCfg.pos[0];
                         errSprite.y = errCfg.pos[1];
                         root.addChild(errSprite);
@@ -1261,27 +1306,21 @@
                     const brewProgressTexture = await loadTextureOptional(primaryZip, fallbackZip, brewProgressCfg.texture);
 
                     if (bubblesTexture && fuelTexture && brewProgressTexture) {
-                        const fuelSprite = new PIXI.Sprite(fuelTexture);
+                        const fuelSprite = createSpriteFromTextureWithPackScale(fuelTexture, [0, 0, fuelCfg.size[0], fuelCfg.size[1]], packScale);
                         fuelSprite.x = fuelCfg.pos[0];
                         fuelSprite.y = fuelCfg.pos[1];
-                        fuelSprite.width = fuelCfg.size[0];
-                        fuelSprite.height = fuelCfg.size[1];
                         fuelSprite.visible = false;
                         root.addChild(fuelSprite);
 
-                        const brewProgressSprite = new PIXI.Sprite(brewProgressTexture);
+                        const brewProgressSprite = createSpriteFromTextureWithPackScale(brewProgressTexture, [0, 0, brewProgressCfg.size[0], brewProgressCfg.size[1]], packScale);
                         brewProgressSprite.x = brewProgressCfg.pos[0];
                         brewProgressSprite.y = brewProgressCfg.pos[1];
-                        brewProgressSprite.width = brewProgressCfg.size[0];
-                        brewProgressSprite.height = brewProgressCfg.size[1];
                         brewProgressSprite.visible = false;
                         root.addChild(brewProgressSprite);
 
-                        const bubblesSprite = new PIXI.Sprite(bubblesTexture);
+                        const bubblesSprite = createSpriteFromTextureWithPackScale(bubblesTexture, [0, 0, bubblesCfg.size[0], bubblesCfg.size[1]], packScale);
                         bubblesSprite.x = bubblesCfg.pos[0];
                         bubblesSprite.y = bubblesCfg.pos[1];
-                        bubblesSprite.width = bubblesCfg.size[0];
-                        bubblesSprite.height = bubblesCfg.size[1];
                         bubblesSprite.visible = false;
                         root.addChild(bubblesSprite);
 
@@ -1304,7 +1343,8 @@
                     const poweredTex = await loadTextureOptional(primaryZip, fallbackZip, rsCfg.powered);
                     const unpoweredTex = await loadTextureOptional(primaryZip, fallbackZip, rsCfg.unpowered);
                     if (poweredTex && unpoweredTex) {
-                        const rsSprite = new PIXI.Sprite(unpoweredTex);
+                        // 假设红石图标在 16x 下为 16x16
+                        const rsSprite = createSpriteFromTextureWithPackScale(unpoweredTex, [0, 0, 16, 16], packScale);
                         rsSprite.x = rsCfg.pos[0];
                         rsSprite.y = rsCfg.pos[1];
                         rsSprite.eventMode = 'static';
@@ -1312,7 +1352,9 @@
                         let powered = false;
                         rsSprite.on('pointerdown', () => {
                             powered = !powered;
-                            rsSprite.texture = powered ? poweredTex : unpoweredTex;
+                            const tex = powered ? poweredTex : unpoweredTex;
+                            // 重新规范化纹理
+                            rsSprite.texture = createTextureFromTextureWithPackScale(tex, [0, 0, 16, 16], packScale);
                             setStatus(`${config.name}：红石信号 ${powered ? '已充能' : '未充能'}`);
                         });
                         root.addChild(rsSprite);
@@ -1342,17 +1384,15 @@
                     if (previewCfg) {
                         const previewTex = await loadTextureOptional(primaryZip, fallbackZip, previewCfg.texture);
                         if (previewTex) {
-                            const preview = new PIXI.Sprite(previewTex);
+                            const preview = createSpriteFromTextureWithPackScaleSafe(previewTex, [0, 0, previewCfg.size[0], previewCfg.size[1]], packScale);
                             preview.x = previewCfg.pos[0];
                             preview.y = previewCfg.pos[1];
-                            preview.width = previewCfg.size[0];
-                            preview.height = previewCfg.size[1];
                             root.addChild(preview);
                         }
                     }
                     createClickableGrid(root, primaryZip, fallbackZip, config.extras.pattern_grid, config.name, (col, row) => {
                         setStatus(`${config.name}：选择图案 ${col},${row}`);
-                    });
+                    }, packScale);
                 }
 
                 // 制图台：输出地图预览
@@ -1360,20 +1400,16 @@
                     const mpCfg = config.extras.map_preview;
                     const mapTex = await loadTextureOptional(primaryZip, fallbackZip, mpCfg.map);
                     if (mapTex) {
-                        const mapSprite = new PIXI.Sprite(mapTex);
+                        const mapSprite = createSpriteFromTextureWithPackScale(mapTex, [0, 0, mpCfg.size[0], mpCfg.size[1]], packScale);
                         mapSprite.x = mpCfg.pos[0];
                         mapSprite.y = mpCfg.pos[1];
-                        mapSprite.width = mpCfg.size[0];
-                        mapSprite.height = mpCfg.size[1];
                         root.addChild(mapSprite);
                     }
                     const overlayTex = await loadTextureOptional(primaryZip, fallbackZip, mpCfg.overlay);
                     if (overlayTex) {
-                        const overlay = new PIXI.Sprite(overlayTex);
+                        const overlay = createSpriteFromTextureWithPackScale(overlayTex, [0, 0, mpCfg.size[0], mpCfg.size[1]], packScale);
                         overlay.x = mpCfg.pos[0];
                         overlay.y = mpCfg.pos[1];
-                        overlay.width = mpCfg.size[0];
-                        overlay.height = mpCfg.size[1];
                         root.addChild(overlay);
                     }
                 }
@@ -1382,7 +1418,7 @@
                 if (config.extras.recipe_grid) {
                     createClickableGrid(root, primaryZip, fallbackZip, config.extras.recipe_grid, config.name, (col, row) => {
                         setStatus(`${config.name}：选择配方 ${col},${row}`);
-                    });
+                    }, packScale);
                 }
 
                 // 信标：确认按钮 + 效果按钮
@@ -1390,7 +1426,7 @@
                     const confirmCfg = config.extras.confirm;
                     const confirmTex = await loadTextureOptional(primaryZip, fallbackZip, confirmCfg.texture);
                     if (confirmTex) {
-                        const confirm = new PIXI.Sprite(confirmTex);
+                        const confirm = createSpriteFromTextureWithPackScaleSafe(confirmTex, [0, 0, confirmCfg.size[0], confirmCfg.size[1]], packScale);
                         confirm.x = confirmCfg.pos[0];
                         confirm.y = confirmCfg.pos[1];
                         confirm.eventMode = 'static';
