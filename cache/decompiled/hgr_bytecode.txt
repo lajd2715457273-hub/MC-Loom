@@ -1,0 +1,283 @@
+﻿Compiled from "SourceFile"
+public class hgr extends gzp<hgr$a> {
+  private static final java.lang.String a;
+
+  private static final java.lang.String b;
+
+  private static final java.lang.String c;
+
+  private static final java.lang.String d;
+
+  private final hdg e;
+
+  private final hdg f;
+
+  private final hdg g;
+
+  private final hdg h;
+
+  private final hdg i;
+
+  private final hdg j;
+
+  public hgr(hdg);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokedynamic #55,  0             // InvokeDynamic #0:apply:()Ljava/util/function/Function;
+       7: invokespecial #58                 // Method gzp."<init>":(Lhdg;Ljava/util/function/Function;)V
+      10: aload_0
+      11: aload_1
+      12: ldc           #60                 // String left_lid
+      14: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      17: putfield      #67                 // Field e:Lhdg;
+      20: aload_0
+      21: aload_1
+      22: ldc           #69                 // String right_lid
+      24: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      27: putfield      #71                 // Field f:Lhdg;
+      30: aload_0
+      31: aload_1
+      32: ldc           #17                 // String left_pages
+      34: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      37: putfield      #73                 // Field g:Lhdg;
+      40: aload_0
+      41: aload_1
+      42: ldc           #20                 // String right_pages
+      44: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      47: putfield      #75                 // Field h:Lhdg;
+      50: aload_0
+      51: aload_1
+      52: ldc           #23                 // String flip_page1
+      54: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      57: putfield      #77                 // Field i:Lhdg;
+      60: aload_0
+      61: aload_1
+      62: ldc           #26                 // String flip_page2
+      64: invokevirtual #65                 // Method hdg.b:(Ljava/lang/String;)Lhdg;
+      67: putfield      #79                 // Field j:Lhdg;
+      70: return
+
+  public static hdm a();
+    Code:
+       0: new           #85                 // class hdo
+       3: dup
+       4: invokespecial #88                 // Method hdo."<init>":()V
+       7: astore_0
+       8: aload_0
+       9: invokevirtual #91                 // Method hdo.a:()Lhdq;
+      12: astore_1
+      13: aload_1
+      14: ldc           #60                 // String left_lid
+      16: invokestatic  #96                 // Method hdl.c:()Lhdl;
+      19: iconst_0
+      20: iconst_0
+      21: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+      24: ldc           #100                // float -6.0f
+      26: ldc           #101                // float -5.0f
+      28: ldc           #102                // float -0.005f
+      30: ldc           #103                // float 6.0f
+      32: ldc           #104                // float 10.0f
+      34: ldc           #105                // float 0.005f
+      36: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+      39: fconst_0
+      40: fconst_0
+      41: ldc           #109                // float -1.0f
+      43: invokestatic  #114                // Method hdi.a:(FFF)Lhdi;
+      46: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+      49: pop
+      50: aload_1
+      51: ldc           #69                 // String right_lid
+      53: invokestatic  #96                 // Method hdl.c:()Lhdl;
+      56: bipush        16
+      58: iconst_0
+      59: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+      62: fconst_0
+      63: ldc           #101                // float -5.0f
+      65: ldc           #102                // float -0.005f
+      67: ldc           #103                // float 6.0f
+      69: ldc           #104                // float 10.0f
+      71: ldc           #105                // float 0.005f
+      73: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+      76: fconst_0
+      77: fconst_0
+      78: fconst_1
+      79: invokestatic  #114                // Method hdi.a:(FFF)Lhdi;
+      82: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+      85: pop
+      86: aload_1
+      87: ldc           #121                // String seam
+      89: invokestatic  #96                 // Method hdl.c:()Lhdl;
+      92: bipush        12
+      94: iconst_0
+      95: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+      98: ldc           #109                // float -1.0f
+     100: ldc           #101                // float -5.0f
+     102: fconst_0
+     103: fconst_2
+     104: ldc           #104                // float 10.0f
+     106: ldc           #105                // float 0.005f
+     108: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+     111: fconst_0
+     112: ldc           #122                // float 1.5707964f
+     114: fconst_0
+     115: invokestatic  #124                // Method hdi.b:(FFF)Lhdi;
+     118: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+     121: pop
+     122: aload_1
+     123: ldc           #17                 // String left_pages
+     125: invokestatic  #96                 // Method hdl.c:()Lhdl;
+     128: iconst_0
+     129: bipush        10
+     131: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+     134: fconst_0
+     135: ldc           #125                // float -4.0f
+     137: ldc           #126                // float -0.99f
+     139: ldc           #127                // float 5.0f
+     141: ldc           #128                // float 8.0f
+     143: fconst_1
+     144: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+     147: getstatic     #131                // Field hdi.a:Lhdi;
+     150: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+     153: pop
+     154: aload_1
+     155: ldc           #20                 // String right_pages
+     157: invokestatic  #96                 // Method hdl.c:()Lhdl;
+     160: bipush        12
+     162: bipush        10
+     164: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+     167: fconst_0
+     168: ldc           #125                // float -4.0f
+     170: ldc           #132                // float -0.01f
+     172: ldc           #127                // float 5.0f
+     174: ldc           #128                // float 8.0f
+     176: fconst_1
+     177: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+     180: getstatic     #131                // Field hdi.a:Lhdi;
+     183: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+     186: pop
+     187: invokestatic  #96                 // Method hdl.c:()Lhdl;
+     190: bipush        24
+     192: bipush        10
+     194: invokevirtual #99                 // Method hdl.a:(II)Lhdl;
+     197: fconst_0
+     198: ldc           #125                // float -4.0f
+     200: fconst_0
+     201: ldc           #127                // float 5.0f
+     203: ldc           #128                // float 8.0f
+     205: ldc           #105                // float 0.005f
+     207: invokevirtual #108                // Method hdl.a:(FFFFFF)Lhdl;
+     210: astore_2
+     211: aload_1
+     212: ldc           #23                 // String flip_page1
+     214: aload_2
+     215: getstatic     #131                // Field hdi.a:Lhdi;
+     218: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+     221: pop
+     222: aload_1
+     223: ldc           #26                 // String flip_page2
+     225: aload_2
+     226: getstatic     #131                // Field hdi.a:Lhdi;
+     229: invokevirtual #119                // Method hdq.a:(Ljava/lang/String;Lhdl;Lhdi;)Lhdq;
+     232: pop
+     233: aload_0
+     234: bipush        64
+     236: bipush        32
+     238: invokestatic  #137                // Method hdm.a:(Lhdo;II)Lhdm;
+     241: areturn
+
+  public void a(hgr$a);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokespecial #146                // Method gzp.a:(Ljava/lang/Object;)V
+       5: aload_1
+       6: getfield      #149                // Field hgr$a.a:F
+       9: ldc           #150                // float 0.02f
+      11: fmul
+      12: f2d
+      13: invokestatic  #155                // Method bgj.a:(D)F
+      16: ldc           #156                // float 0.1f
+      18: fmul
+      19: ldc           #157                // float 1.25f
+      21: fadd
+      22: aload_1
+      23: getfield      #159                // Field hgr$a.d:F
+      26: fmul
+      27: fstore_2
+      28: aload_0
+      29: getfield      #67                 // Field e:Lhdg;
+      32: ldc           #160                // float 3.1415927f
+      34: fload_2
+      35: fadd
+      36: putfield      #162                // Field hdg.f:F
+      39: aload_0
+      40: getfield      #71                 // Field f:Lhdg;
+      43: fload_2
+      44: fneg
+      45: putfield      #162                // Field hdg.f:F
+      48: aload_0
+      49: getfield      #73                 // Field g:Lhdg;
+      52: fload_2
+      53: putfield      #162                // Field hdg.f:F
+      56: aload_0
+      57: getfield      #75                 // Field h:Lhdg;
+      60: fload_2
+      61: fneg
+      62: putfield      #162                // Field hdg.f:F
+      65: aload_0
+      66: getfield      #77                 // Field i:Lhdg;
+      69: fload_2
+      70: fload_2
+      71: fconst_2
+      72: fmul
+      73: aload_1
+      74: getfield      #164                // Field hgr$a.b:F
+      77: fmul
+      78: fsub
+      79: putfield      #162                // Field hdg.f:F
+      82: aload_0
+      83: getfield      #79                 // Field j:Lhdg;
+      86: fload_2
+      87: fload_2
+      88: fconst_2
+      89: fmul
+      90: aload_1
+      91: getfield      #166                // Field hgr$a.c:F
+      94: fmul
+      95: fsub
+      96: putfield      #162                // Field hdg.f:F
+      99: aload_0
+     100: getfield      #73                 // Field g:Lhdg;
+     103: fload_2
+     104: f2d
+     105: invokestatic  #155                // Method bgj.a:(D)F
+     108: putfield      #167                // Field hdg.b:F
+     111: aload_0
+     112: getfield      #75                 // Field h:Lhdg;
+     115: fload_2
+     116: f2d
+     117: invokestatic  #155                // Method bgj.a:(D)F
+     120: putfield      #167                // Field hdg.b:F
+     123: aload_0
+     124: getfield      #77                 // Field i:Lhdg;
+     127: fload_2
+     128: f2d
+     129: invokestatic  #155                // Method bgj.a:(D)F
+     132: putfield      #167                // Field hdg.b:F
+     135: aload_0
+     136: getfield      #79                 // Field j:Lhdg;
+     139: fload_2
+     140: f2d
+     141: invokestatic  #155                // Method bgj.a:(D)F
+     144: putfield      #167                // Field hdg.b:F
+     147: return
+
+  public void a(java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: checkcast     #8                  // class hgr$a
+       5: invokevirtual #170                // Method a:(Lhgr$a;)V
+       8: return
+}
